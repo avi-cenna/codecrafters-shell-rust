@@ -11,8 +11,12 @@ fn main() {
         command = command.trim().to_string();
         if command == "exit" {
             break;
-        };
-        println!("{}: command not found", command);
+        } else if command.starts_with("echo") {
+            let args = command.strip_prefix("echo").unwrap().trim();
+            println!("{}", args)
+        } else {
+            println!("{}: command not found", command);
+        }
         // if cmd_is_valid(&command) {
         //     println!("Command is valid");
         // } else {
