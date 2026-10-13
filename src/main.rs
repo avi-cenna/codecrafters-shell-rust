@@ -4,4 +4,19 @@ use std::io::{self, Write};
 fn main() {
     print!("$ ");
     io::stdout().flush().unwrap();
+
+    let mut command = String::new();
+    io::stdin().read_line(&mut command).unwrap();
+    println!("{}: command not found", command.trim());
+    // if cmd_is_valid(&command) {
+    //     println!("Command is valid");
+    // } else {
+    //     println!("{}: command not found", command.trim());
+    // }
+    io::stdout().flush().unwrap();
+}
+
+fn cmd_is_valid(cmd: &str) -> bool {
+    // cmd.trim() != ""
+    false
 }
