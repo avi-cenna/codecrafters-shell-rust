@@ -1,59 +1,91 @@
-use regex::Regex;
-#[allow(unused_imports)]
+// #[allow(unused_imports)]
+use anyhow::{Result, bail};
 use std::io::{self, Write};
 
-fn main() {
+fn main() -> Result<()> {
+    repl_loop()?;
+    io::stdout().flush()?;
+    Ok(())
+}
+
+const BUILTINS: [&str; 4] = ["echo", "pwd", "exit", "type"];
+
+fn repl_loop() -> Result<()> {
     loop {
         print!("$ ");
-        io::stdout().flush().unwrap();
+        io::stdout().flush()?;
 
-        let mut command = String::new();
-        io::stdin().read_line(&mut command).unwrap();
-        command = command.trim().to_string();
-        let parsed = parse_cmd(&command);
-        if parsed.cmd == "exit" {
+        let mut command_line = String::new();
+        let bytes_read = io::stdin().read_line(&mut command_line)?;
+        if bytes_read <= 0 {
             break;
-        } else if parsed.cmd == "echo" {
-            println!("{}", parsed.args.join(" "))
-        } else if parsed.cmd == "type" {
-            let first_arg = parsed.args[0].as_str();
-            match first_arg {
-                "echo"|"type"|"exit" => {
-                    println!("{} is a shell builtin", first_arg)
-                }
-                _ => {
-                    println!("{}: not found", first_arg)
+        }
+        let command_line = command_line.trim();
+        // let cmd_tokens = parse_cmd(command_line);
+        // let cmd = cmd_tokens.get(0);
+        let shell_cmd = parse_cmd(command_line)?;
+        match shell_cmd {
+            ShellCmd::Empty => continue,
+            ShellCmd::Exit => break,
+            ShellCmd::Echo(args) => {
+                println!("{}", args.join(" "))
+            }
+            ShellCmd::Type(fname) => {
+                if BUILTINS.contains(&fname.as_str()) {
+                    println!("{} is a shell builtin", fname)
+                } else {
+                    println!("{}: not found", fname)
                 }
             }
-        } else {
-            println!("{}: command not found", command);
+            ShellCmd::Unknown => {
+                println!("{}: command not found", command_line)
+            }
         }
-        // if cmd_is_valid(&command) {
-        //     println!("Command is valid");
-        // } else {
-        //     println!("{}: command not found", command.trim());
-        // }
-        io::stdout().flush().unwrap();
     }
+    Ok(())
+}
+// Some(cmd) => match cmd.as_str() {
+//     "exit" => break,
+//     "type" => {
+//     }
+// },
+// None => continue,
+
+enum ShellCmd {
+    Empty,
+    Exit,
+    Echo(Vec<String>),
+    Type(String),
+    Unknown,
 }
 
-struct ParsedCommand {
-    cmd: String,
-    args: Vec<String>,
-}
+// old
+// fn parse_cmd(cmd: &str) -> Vec<String> {
+//     let tokens: Vec<&str> = cmd.split_whitespace().collect();
+//     tokens.iter().map(|x| x.to_string()).collect()
+// }
 
-fn parse_cmd(cmd: &str) -> ParsedCommand {
-    let ws = Regex::new(r#"\s+"#).unwrap();
-    let tokens: Vec<&str> = ws.split(cmd).collect();
-    let cmd = tokens[0].to_string();
-    let args: Vec<String> = tokens[1..tokens.len()]
-        .iter()
-        .map(|x| x.to_string())
-        .collect();
-    ParsedCommand { cmd, args }
-}
-
-fn cmd_is_valid(cmd: &str) -> bool {
-    // cmd.trim() != ""
-    false
+// TODO: n2 What do you think about this function?
+fn parse_cmd(cmd: &str) -> Result<ShellCmd> {
+    let mut iter = cmd.split_whitespace();
+    let first = iter.next();
+    let rest: Vec<&str> = iter.collect();
+    let shell_cmd = match first {
+        Some("exit") => ShellCmd::Exit,
+        Some("echo") => {
+            let rest: Vec<String> = rest.into_iter().map(|x| x.to_string()).collect();
+            ShellCmd::Echo(rest)
+        }
+        Some("type") => {
+            let rest: Vec<String> = rest.into_iter().map(|x| x.to_string()).collect();
+            if rest.len() != 1 {
+                bail!("parse error: invalid number of arguments to type")
+            }
+            ShellCmd::Type(rest[0].clone())
+        }
+        Some("") => ShellCmd::Empty,
+        Some(_) => ShellCmd::Unknown,
+        None => ShellCmd::Empty,
+    };
+    Ok(shell_cmd)
 }
