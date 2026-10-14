@@ -1,10 +1,10 @@
-// #[allow(unused_imports)]
 use anyhow::{Result, bail};
 use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 
 fn main() -> Result<()> {
     repl_loop()?;
-    io::stdout().flush()?;
     Ok(())
 }
 
@@ -21,25 +21,22 @@ fn repl_loop() -> Result<()> {
             break;
         }
         let command_line = command_line.trim();
-        // let cmd_tokens = parse_cmd(command_line);
-        // let cmd = cmd_tokens.get(0);
         let shell_cmd = parse_cmd(command_line)?;
-        match shell_cmd {
+        let cmd_result: Result<()> = match shell_cmd {
             ShellCmd::Empty => continue,
             ShellCmd::Exit => break,
             ShellCmd::Echo(args) => {
-                println!("{}", args.join(" "))
+                println!("{}", args.join(" "));
+                Ok(())
             }
-            ShellCmd::Type(fname) => {
-                if BUILTINS.contains(&fname.as_str()) {
-                    println!("{} is a shell builtin", fname)
-                } else {
-                    println!("{}: not found", fname)
-                }
-            }
+            ShellCmd::Type(fname) => run_type(fname),
             ShellCmd::Unknown => {
-                println!("{}: command not found", command_line)
+                println!("{}: command not found", command_line);
+                Ok(())
             }
+        };
+        if let Some(err) = cmd_result.err() {
+            println!("Error when processing shell cmd: {err}")
         }
     }
     Ok(())
@@ -55,37 +52,46 @@ enum ShellCmd {
     Empty,
     Exit,
     Echo(Vec<String>),
-    Type(String),
+    Type(Vec<String>),
     Unknown,
 }
 
-// old
-// fn parse_cmd(cmd: &str) -> Vec<String> {
-//     let tokens: Vec<&str> = cmd.split_whitespace().collect();
-//     tokens.iter().map(|x| x.to_string()).collect()
-// }
-
-// TODO: n2 What do you think about this function?
 fn parse_cmd(cmd: &str) -> Result<ShellCmd> {
     let mut iter = cmd.split_whitespace();
     let first = iter.next();
-    let rest: Vec<&str> = iter.collect();
+    let rest: Vec<String> = iter.map(|x| x.to_string()).collect();
     let shell_cmd = match first {
         Some("exit") => ShellCmd::Exit,
-        Some("echo") => {
-            let rest: Vec<String> = rest.into_iter().map(|x| x.to_string()).collect();
-            ShellCmd::Echo(rest)
-        }
-        Some("type") => {
-            let rest: Vec<String> = rest.into_iter().map(|x| x.to_string()).collect();
-            if rest.len() != 1 {
-                bail!("parse error: invalid number of arguments to type")
-            }
-            ShellCmd::Type(rest[0].clone())
-        }
+        Some("echo") => ShellCmd::Echo(rest),
+        Some("type") => ShellCmd::Type(rest),
         Some("") => ShellCmd::Empty,
         Some(_) => ShellCmd::Unknown,
         None => ShellCmd::Empty,
     };
     Ok(shell_cmd)
+}
+
+fn run_type(fnames: Vec<String>) -> Result<()> {
+    for fname in fnames {
+        if BUILTINS.contains(&fname.as_str()) {
+            println!("{} is a shell builtin", fname);
+            return Ok(());
+        }
+        let path = std::env::var_os("PATH").expect("PATH not set");
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join(&fname);
+            if candidate.is_file() && is_executable(&candidate)? {
+                println!("{} is {}", fname, candidate.to_str().unwrap_or(""));
+                return Ok(());
+            }
+        }
+        println!("{fname}: not found");
+    }
+    Ok(())
+}
+
+fn is_executable(path: &Path) -> Result<bool> {
+    let meta = path.metadata()?;
+    let mode = meta.permissions().mode();
+    Ok(mode & 0o111 != 0)
 }
