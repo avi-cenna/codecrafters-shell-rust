@@ -25,6 +25,7 @@ fn repl_loop() -> Result<()> {
         let command_line = command_line.trim();
         let shell_cmd = parse_cmd(command_line)?;
         let cmd_result: Result<()> = match shell_cmd {
+            ShellCmd::Cd(path) => run_cd(path),
             ShellCmd::Empty => continue,
             ShellCmd::Exit => break,
             ShellCmd::Echo(args) => run_echo(args),
@@ -40,9 +41,20 @@ fn repl_loop() -> Result<()> {
             }
         };
         if let Some(err) = cmd_result.err() {
-            println!("Error when processing shell cmd: {err}")
+            let mut iter = command_line.split_whitespace();
+            let first = iter.next().unwrap_or("");
+            println!("{first}: {err}")
         }
     }
+    Ok(())
+}
+
+fn run_cd(path: String) -> Result<()> {
+    let candidate = PathBuf::from(path);
+    if !candidate.is_dir() {
+        bail!("{}: No such file or directory", candidate.display())
+    }
+    std::env::set_current_dir(&candidate)?;
     Ok(())
 }
 
@@ -71,6 +83,7 @@ enum ShellCmd {
     Empty,
     Program(ProgramArgs),
     Unknown(String),
+    Cd(String),
 }
 
 fn parse_cmd(cmd: &str) -> Result<ShellCmd> {
@@ -78,6 +91,12 @@ fn parse_cmd(cmd: &str) -> Result<ShellCmd> {
     let first = iter.next();
     let rest: Vec<String> = iter.map(|x| x.to_string()).collect();
     let shell_cmd = match first {
+        Some("cd") => {
+            if rest.len() != 1 {
+                bail!("Expecting only one argument for cd")
+            }
+            ShellCmd::Cd(rest[0].clone())
+        }
         Some("exit") => ShellCmd::Exit,
         Some("echo") => ShellCmd::Echo(rest),
         Some("pwd") => {
