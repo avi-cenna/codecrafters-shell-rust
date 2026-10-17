@@ -1,7 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::os::unix::prelude::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus};
 
 fn main() -> Result<()> {
     repl_loop()?;
@@ -17,7 +19,7 @@ fn repl_loop() -> Result<()> {
 
         let mut command_line = String::new();
         let bytes_read = io::stdin().read_line(&mut command_line)?;
-        if bytes_read <= 0 {
+        if bytes_read == 0 {
             break;
         }
         let command_line = command_line.trim();
@@ -29,9 +31,13 @@ fn repl_loop() -> Result<()> {
                 println!("{}", args.join(" "));
                 Ok(())
             }
-            ShellCmd::Type(fname) => run_type(fname),
-            ShellCmd::Unknown => {
-                println!("{}: command not found", command_line);
+            ShellCmd::Type(fnames) => run_type(fnames),
+            ShellCmd::Program(p) => {
+                let exit_status = run_program(p);
+                exit_status.map(|_| ())
+            }
+            ShellCmd::Unknown(c) => {
+                println!("{}: command not found", c);
                 Ok(())
             }
         };
@@ -48,12 +54,19 @@ fn repl_loop() -> Result<()> {
 // },
 // None => continue,
 
+struct ProgramArgs {
+    fname: String,
+    fpath: PathBuf,
+    args: Vec<String>,
+}
+
 enum ShellCmd {
-    Empty,
     Exit,
     Echo(Vec<String>),
     Type(Vec<String>),
-    Unknown,
+    Empty,
+    Program(ProgramArgs),
+    Unknown(String),
 }
 
 fn parse_cmd(cmd: &str) -> Result<ShellCmd> {
@@ -64,8 +77,19 @@ fn parse_cmd(cmd: &str) -> Result<ShellCmd> {
         Some("exit") => ShellCmd::Exit,
         Some("echo") => ShellCmd::Echo(rest),
         Some("type") => ShellCmd::Type(rest),
-        Some("") => ShellCmd::Empty,
-        Some(_) => ShellCmd::Unknown,
+        // TODO: n2 (me) i want to put find_exec out of the parse.
+        // all unknown should prb just be a program, and if it's isn't found, it will print the proper msg.
+        Some(fname) => {
+            if let Some(p) = find_executable(fname) {
+                ShellCmd::Program(ProgramArgs {
+                    fname: fname.to_string(),
+                    fpath: p,
+                    args: rest,
+                })
+            } else {
+                ShellCmd::Unknown(fname.to_string())
+            }
+        }
         None => ShellCmd::Empty,
     };
     Ok(shell_cmd)
@@ -75,23 +99,43 @@ fn run_type(fnames: Vec<String>) -> Result<()> {
     for fname in fnames {
         if BUILTINS.contains(&fname.as_str()) {
             println!("{} is a shell builtin", fname);
-            return Ok(());
+            continue
         }
-        let path = std::env::var_os("PATH").expect("PATH not set");
-        for dir in std::env::split_paths(&path) {
-            let candidate = dir.join(&fname);
-            if candidate.is_file() && is_executable(&candidate)? {
-                println!("{} is {}", fname, candidate.to_str().unwrap_or(""));
-                return Ok(());
-            }
+        if let Some(p) = find_executable(&fname) {
+            println!("{} is {}", fname, p.to_str().unwrap_or(""));
+        } else {
+            println!("{fname}: not found");
         }
-        println!("{fname}: not found");
     }
     Ok(())
 }
 
-fn is_executable(path: &Path) -> Result<bool> {
-    let meta = path.metadata()?;
-    let mode = meta.permissions().mode();
-    Ok(mode & 0o111 != 0)
+fn run_program(p: ProgramArgs) -> Result<ExitStatus> {
+    let exit_status = Command::new(p.fpath).arg0(p.fname).args(p.args).status()?;
+    Ok(exit_status)
+}
+
+fn find_executable(fname: &str) -> Option<PathBuf> {
+    /// TODO: n2 What do you think about this function? is it idiomatic. i don't think it
+    /// needed to return the Result because it's overkill to propagate the metadata error i think...
+    fn is_executable(path: &Path) -> bool {
+        let meta = match path.metadata() {
+            Ok(meta) => meta,
+            Err(e) => {
+                eprintln!("Error accessing metadata for {:?}: {}", path, e);
+                return false;
+            }
+        };
+        let mode = meta.permissions().mode();
+        mode & 0o111 != 0
+    }
+
+    let path = std::env::var_os("PATH").expect("PATH not set");
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(fname);
+        if candidate.is_file() && is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
 }
