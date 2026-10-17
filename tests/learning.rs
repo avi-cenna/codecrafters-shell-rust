@@ -2,6 +2,61 @@ use std::io::BufRead;
 // Unix-only extension trait: adds `.mode()` to `Permissions`.
 use std::os::unix::fs::PermissionsExt;
 
+#[test]
+fn explore_cwd() {
+    use std::process::Command;
+
+    // The cwd is per-process kernel state (getcwd(3) / chdir(2)), not an env var.
+    let original = std::env::current_dir().unwrap();
+    println!("start:        {}", original.display());
+
+    // chdir affects the whole process: every thread, so every parallel test too.
+    // On macOS `/tmp` is a symlink. What does current_dir report afterwards?
+    std::env::set_current_dir("/tmp").unwrap();
+    println!(
+        "after /tmp:   {}",
+        std::env::current_dir().unwrap().display()
+    );
+
+    // Relative paths resolve against the current cwd.
+    std::env::set_current_dir("..").unwrap();
+    println!(
+        "after ..:     {}",
+        std::env::current_dir().unwrap().display()
+    );
+
+    // Failures are io::Errors; the kind tells you why.
+    for bad in ["/nope", "/etc/hosts"] {
+        match std::env::set_current_dir(bad) {
+            Ok(()) => println!("unexpected: cd {bad} succeeded"),
+            Err(e) => println!("cd {bad:11} -> Err(kind={:?}): {e}", e.kind()),
+        }
+    }
+
+    // A child inherits our cwd across fork + exec...
+    let out = Command::new("/bin/pwd").output().unwrap();
+    println!(
+        "child pwd:    {}",
+        String::from_utf8_lossy(&out.stdout).trim()
+    );
+
+    // ...unless `Command::current_dir` sets it for that child only (chdir after fork, before exec).
+    let out = Command::new("/bin/pwd")
+        .current_dir("/usr")
+        .output()
+        .unwrap();
+    println!(
+        "child (/usr): {}",
+        String::from_utf8_lossy(&out.stdout).trim()
+    );
+    println!(
+        "ours still:   {}",
+        std::env::current_dir().unwrap().display()
+    );
+
+    // Put it back so other tests in this process aren't affected.
+    std::env::set_current_dir(&original).unwrap();
+}
 
 #[test]
 fn explore_run_program() {
@@ -9,16 +64,30 @@ fn explore_run_program() {
 
     // `status()` = fork + exec + wait. The child inherits our stdin/stdout/stderr,
     // so its output goes straight to the terminal; we only get the exit status back.
-    let status = Command::new("/bin/echo").args(["arg1", "arg2"]).status().unwrap();
-    println!("status: {status:?}, success={}, code={:?}", status.success(), status.code());
+    let status = Command::new("/bin/echo")
+        .args(["arg1", "arg2"])
+        .status()
+        .unwrap();
+    println!(
+        "status: {status:?}, success={}, code={:?}",
+        status.success(),
+        status.code()
+    );
 
     // A non-zero exit is still Ok(status). It's not an Err.
     let status = Command::new("/usr/bin/false").status().unwrap();
-    println!("false -> success={}, code={:?}", status.success(), status.code());
+    println!(
+        "false -> success={}, code={:?}",
+        status.success(),
+        status.code()
+    );
 
     // `output()` captures stdout/stderr into Vec<u8> instead of inheriting them.
     let out = Command::new("/bin/echo").arg("captured").output().unwrap();
-    println!("captured stdout: {:?}", String::from_utf8_lossy(&out.stdout));
+    println!(
+        "captured stdout: {:?}",
+        String::from_utf8_lossy(&out.stdout)
+    );
 
     // A bare name (no '/') makes Command do its own PATH search, like execvp.
     // A missing program shows up as Err from spawn, not as an exit status.
@@ -48,7 +117,10 @@ fn explore_argv0() {
             .args(["-o", "args=", "-p", &child.id().to_string()])
             .output()
             .unwrap();
-        println!("arg0={arg0:?} -> ps sees: {}", String::from_utf8_lossy(&ps.stdout).trim());
+        println!(
+            "arg0={arg0:?} -> ps sees: {}",
+            String::from_utf8_lossy(&ps.stdout).trim()
+        );
         child.wait().unwrap();
     }
 }
@@ -111,12 +183,19 @@ fn explore_access_x_ok() {
         // C wants a NUL-terminated string; CString::new fails if the path contains a NUL byte.
         let c_path = CString::new(path.as_os_str().as_bytes())?;
         let rc = unsafe { libc::access(c_path.as_ptr(), libc::X_OK) };
-        if rc == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
     }
 
     // A file with only the group execute bit (mode 010): `any_x_bit` says yes,
     // but if we own it, only the owner bits apply to us, so access says no.
     let group_only = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("group_x_only");
+    // Last run left it at mode 010, so the owner can't open it for writing. Unlinking only
+    // needs write permission on the directory, not the file. Ignore NotFound on a first run.
+    let _ = std::fs::remove_file(&group_only);
     std::fs::write(&group_only, "#!/bin/sh\necho hi\n").unwrap();
     std::fs::set_permissions(&group_only, std::fs::Permissions::from_mode(0o010)).unwrap();
 
@@ -128,10 +207,16 @@ fn explore_access_x_ok() {
         group_only.as_path(),
     ];
     for path in paths {
-        let any_x_bit = path.metadata().is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
+        let any_x_bit = path
+            .metadata()
+            .is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
         match access_x(path) {
             Ok(()) => println!("{:40} any_x_bit={any_x_bit:5} access=ok", path.display()),
-            Err(e) => println!("{:40} any_x_bit={any_x_bit:5} access={:?}", path.display(), e.kind()),
+            Err(e) => println!(
+                "{:40} any_x_bit={any_x_bit:5} access={:?}",
+                path.display(),
+                e.kind()
+            ),
         }
     }
 }

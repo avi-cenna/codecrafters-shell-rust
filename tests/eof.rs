@@ -18,7 +18,7 @@ fn exit_on_eof() {
         match sh.try_wait().expect("Error attempting to wait") {
             Some(status) => {
                 assert_eq!(status.code(), Some(0));
-                return
+                return;
             }
             None => sleep(Duration::from_millis(10)),
         }

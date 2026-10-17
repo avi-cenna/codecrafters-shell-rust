@@ -7,8 +7,11 @@ check:
 lint:
     cargo clippy
 
-test-codecrafters *args:
-    codecrafters test {{ args }}
+test-codecrafters:
+    codecrafters test
+
+test-all-codecrafters:
+    codecrafters test -previous
 
 submit-codecrafters:
     codecrafters submit
