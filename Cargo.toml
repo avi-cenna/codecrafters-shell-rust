@@ -13,3 +13,9 @@ regex = "1.13.1"                             # error handling
 
 [dev-dependencies]
 libc = "0.2.190"
+
+[lints.clippy]
+pedantic = "warn"
+#nursery = "warn"
+#cargo = "warn"
+

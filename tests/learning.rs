@@ -2,6 +2,40 @@ use std::io::BufRead;
 // Unix-only extension trait: adds `.mode()` to `Permissions`.
 use std::os::unix::fs::PermissionsExt;
 
+/// TODO: n2 add another test for getting HOME env var (or maybe that's obvious)
+/// Also, I want us to discuss how to handle our actual unit and integration tests. Because the thing is, my focus is really the design of these challenges. I don't want to get too lost in the weeds of like how to do test factories or all the test scaffolding in Rust or other languages. I think I want Claude to handle that. But maybe Claude can handle the skeleton of the tests and it will leave the actual, the initial pass of test cases to me. And then once I, I'm trying to think, once I do the initial pass of test cases, maybe then there will be another review phase. But this is also another one where I don't want to get too lost in the weeds of like weird little edge cases with like how shells work. Because that's interesting. But like for example, with the edge case of some files that are like, they're not technically executable by my GUID, like that might be getting a little bit too technical. And that's not really necessary to pass the actual Code Crafters Challenge. So let me put it like that. I'm interested in actually passing the Code Crafters Challenge. If you have interesting edge cases, you can put those maybe in comments just to tell me like, hey, by the way, libc is actually the canonical way of checking for access because the file mode is not completely reliable. And then I can make a judgment call of whether or not I actually want to do that. But in this case, it feels like there's not that much return from that because I'm already understanding how the shell works. Understanding exactly how file permissions work is maybe not fully necessary just yet.
+/// And then the next thing is this. Once I do the first pass of test cases, maybe then what Claude does is Claude does a review of my test cases. Maybe it makes sure that I'm getting like the most important points. And then perhaps Claude can do something where it runs the code coverages and then it adds additional test cases to make sure that we have a high degree of code coverage, either 100% or as close to 100% as we can reasonably get. But I want to discuss this. I don't want to immediately commit to a certain approach because the thing is that the goal for Code Crafters is for this to be a learning exercise for me to learn more about these fundamentals and these foundations. But I also don't want it to become a complete drag where I'm just getting bogged down in edge cases and test scenarios of things that may not be fully relevant to me, like the exact mechanism by which file permissions are calculated.
+/// let's discuss...
+#[test]
+fn explore_home() {
+    use std::process::Command;
+
+    // HOME is just an env var the login process set; the kernel doesn't know about it.
+    // `var_os` -> None if unset (no UTF-8 check), `var` -> Err if unset or not UTF-8.
+    println!("var_os(HOME): {:?}", std::env::var_os("HOME"));
+    println!("var(HOME):    {:?}", std::env::var("HOME"));
+
+    // `home_dir` reads HOME, and only if it's unset falls back to the passwd entry (getpwuid_r).
+    println!("home_dir():   {:?}", std::env::home_dir());
+
+    // `~` is shell syntax, not a path: the filesystem sees a dir literally named "~".
+    println!(
+        "Path(\"~\").exists(): {}",
+        std::path::Path::new("~").exists()
+    );
+
+    // A shell expands `~` from *its own* HOME, so changing the child's env changes the result.
+    let out = Command::new("/bin/sh")
+        .args(["-c", "echo ~ ~/x"])
+        .env("HOME", "/somewhere/else")
+        .output()
+        .unwrap();
+    println!(
+        "sh with HOME overridden: {}",
+        String::from_utf8_lossy(&out.stdout).trim()
+    );
+}
+
 #[test]
 fn explore_cwd() {
     use std::process::Command;
