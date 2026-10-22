@@ -1,32 +1,48 @@
-use crate::parser::{ShellCmd, parse_cmd_name};
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::prelude::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+pub enum BuiltinCmd {
+    Cd,
+    Echo,
+    Exit,
+    Pwd,
+    Type,
+}
+
+impl BuiltinCmd {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "cd" => Some(Self::Cd),
+            "exit" => Some(Self::Exit),
+            "echo" => Some(Self::Echo),
+            "pwd" => Some(Self::Pwd),
+            "type" => Some(Self::Type),
+            _ => None,
+        }
+    }
+}
 
 pub fn run_echo(args: &[String]) {
     println!("{}", args.join(" "));
 }
 
-/// TODO: n2 is this idiomatic? any way i could improve it, or improve variable naming?
 pub fn run_cd(args: &[String]) -> Result<()> {
-    if args.len() != 1 {
+    let [arg] = args else {
         bail!("expected exactly one argument")
-    }
-    let path = args[0].as_str();
-    let candidate = if path == "~" {
-        match std::env::var_os("HOME") {
-            Some(s) => PathBuf::from(s),
-            None => bail!("Home directory is unset"),
-        }
-    } else {
-        PathBuf::from(path)
     };
-    if !candidate.is_dir() {
-        bail!("{}: No such file or directory", candidate.display())
+    let target = if arg == "~" {
+        std::env::home_dir().context("Cannot get home directory")?
+    } else {
+        PathBuf::from(arg)
+    };
+    if !target.is_dir() {
+        // CodeCrafters expects this message
+        bail!("{}: No such file or directory", target.display())
     }
-    std::env::set_current_dir(&candidate)?;
+    std::env::set_current_dir(&target)?;
     Ok(())
 }
 
@@ -39,47 +55,49 @@ pub fn run_pwd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// TODO: n2 please review this. is it idiomatic?
-// pub fn run_type(fnames: Vec<String>) { // try one version with borrowing
-pub fn run_type(fnames: Vec<String>) {
+pub fn run_type(fnames: &[String]) {
     for fname in fnames {
-        let shell_cmd = parse_cmd_name(fname.as_str());
-        match shell_cmd {
-            ShellCmd::Builtin(_) => println!("{fname} is a shell builtin"),
-            ShellCmd::Program(_) => {
-                if let Some(p) = find_executable(&fname) {
-                    println!("{} is {}", fname, p.display());
-                } else {
-                    println!("{fname}: not found");
-                }
-            }
+        if BuiltinCmd::from_name(fname).is_some() {
+            println!("{fname} is a shell builtin");
+        } else if let Some(p) = find_executable(fname) {
+            println!("{} is {}", fname, p.display());
+        } else {
+            println!("{fname}: not found");
         }
-        // if BUILTINS.contains(&fname.as_str()) {}
     }
 }
 
-pub fn run_program(name: String, args: Vec<String>) -> Result<()> {
-    let executable = find_executable(name.as_str());
-    if let Some(path) = executable {
-        let _exit_status = Command::new(path).arg0(name).args(args).status()?;
+pub fn run_program(name: &str, args: &[String]) -> Result<()> {
+    // dbg!(name, args); // only for manual inspection
+    if let Some(path) = find_executable(name) {
+        let _ = Command::new(path).arg0(name).args(args).status()?;
         // for now, don't do anything with exit status
-        // Ok(())
     } else {
-        println!("{name}: command not found");
+        bail!("command not found");
     }
     Ok(())
 }
 
 pub fn find_executable(fname: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(fname);
-        if candidate
-            .metadata()
-            .is_ok_and(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
-        {
-            return Some(candidate);
+    if fname.contains('/') {
+        let candidate = PathBuf::from(fname);
+        if is_executable(&candidate) {
+            Some(candidate)
+        } else {
+            None
         }
+    } else {
+        let path = std::env::var_os("PATH")?;
+        let mut dirs = std::env::split_paths(&path);
+        dirs.find(|dir| {
+            let candidate = dir.join(fname);
+            is_executable(&candidate)
+        })
+        .map(|dir| dir.join(fname))
     }
-    None
+}
+
+fn is_executable(f: &Path) -> bool {
+    f.metadata()
+        .is_ok_and(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
 }

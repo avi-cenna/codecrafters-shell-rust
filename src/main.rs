@@ -1,14 +1,13 @@
 mod builtins;
-mod parser;
+mod lexer;
 
-use crate::builtins::{run_cd, run_echo, run_program, run_pwd, run_type};
-use crate::parser::{BuiltinCmd, ShellCmd};
+use crate::builtins::{BuiltinCmd, run_cd, run_echo, run_program, run_pwd, run_type};
+use crate::lexer::split_tokens;
 use anyhow::Result;
 use std::io::{self, Write};
 
 fn main() -> Result<()> {
-    repl_loop()?;
-    Ok(())
+    repl_loop()
 }
 
 fn repl_loop() -> Result<()> {
@@ -21,29 +20,32 @@ fn repl_loop() -> Result<()> {
         if bytes_read == 0 {
             break;
         }
-        let command_line = command_line.trim();
-        let mut iter = command_line.split_whitespace();
-        let cmd_name = iter.next().unwrap_or("");
-        let args: Vec<String> = iter.map(ToString::to_string).collect();
-        let shell_cmd = parser::parse_cmd_name(cmd_name);
-        let cmd_result: Result<()> = match shell_cmd {
-            ShellCmd::Builtin(builtin) => match builtin {
-                BuiltinCmd::Cd => run_cd(&args),
-                BuiltinCmd::Echo => {
-                    run_echo(&args);
-                    Ok(())
-                },
-                BuiltinCmd::Exit => break,
-                BuiltinCmd::Pwd => run_pwd(&args),
-                BuiltinCmd::Type => {
-                    run_type(args);
-                    Ok(())
-                },
-            },
-            ShellCmd::Program(p) => run_program(p, args),
+        let tokens = match split_tokens(command_line.as_str()) {
+            Ok(t) => t,
+            Err(err) => {
+                eprintln!("{err}");
+                continue;
+            }
         };
-        if let Some(err) = cmd_result.err() {
-            println!("{cmd_name}: {err}");
+        let Some((cmd_name, args)) = tokens.split_first() else {
+            continue;
+        };
+        let cmd_result: Result<()> = match BuiltinCmd::from_name(cmd_name) {
+            Some(BuiltinCmd::Cd) => run_cd(args),
+            Some(BuiltinCmd::Echo) => {
+                run_echo(args);
+                Ok(())
+            }
+            Some(BuiltinCmd::Exit) => break,
+            Some(BuiltinCmd::Pwd) => run_pwd(args),
+            Some(BuiltinCmd::Type) => {
+                run_type(args);
+                Ok(())
+            }
+            None => run_program(cmd_name, args),
+        };
+        if let Err(err) = cmd_result {
+            eprintln!("{cmd_name}: {err}");
         }
     }
     Ok(())

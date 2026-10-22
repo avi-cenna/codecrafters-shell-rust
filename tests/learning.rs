@@ -2,10 +2,49 @@ use std::io::BufRead;
 // Unix-only extension trait: adds `.mode()` to `Permissions`.
 use std::os::unix::fs::PermissionsExt;
 
-/// TODO: n2 add another test for getting HOME env var (or maybe that's obvious)
-/// Also, I want us to discuss how to handle our actual unit and integration tests. Because the thing is, my focus is really the design of these challenges. I don't want to get too lost in the weeds of like how to do test factories or all the test scaffolding in Rust or other languages. I think I want Claude to handle that. But maybe Claude can handle the skeleton of the tests and it will leave the actual, the initial pass of test cases to me. And then once I, I'm trying to think, once I do the initial pass of test cases, maybe then there will be another review phase. But this is also another one where I don't want to get too lost in the weeds of like weird little edge cases with like how shells work. Because that's interesting. But like for example, with the edge case of some files that are like, they're not technically executable by my GUID, like that might be getting a little bit too technical. And that's not really necessary to pass the actual Code Crafters Challenge. So let me put it like that. I'm interested in actually passing the Code Crafters Challenge. If you have interesting edge cases, you can put those maybe in comments just to tell me like, hey, by the way, libc is actually the canonical way of checking for access because the file mode is not completely reliable. And then I can make a judgment call of whether or not I actually want to do that. But in this case, it feels like there's not that much return from that because I'm already understanding how the shell works. Understanding exactly how file permissions work is maybe not fully necessary just yet.
-/// And then the next thing is this. Once I do the first pass of test cases, maybe then what Claude does is Claude does a review of my test cases. Maybe it makes sure that I'm getting like the most important points. And then perhaps Claude can do something where it runs the code coverages and then it adds additional test cases to make sure that we have a high degree of code coverage, either 100% or as close to 100% as we can reasonably get. But I want to discuss this. I don't want to immediately commit to a certain approach because the thing is that the goal for Code Crafters is for this to be a learning exercise for me to learn more about these fundamentals and these foundations. But I also don't want it to become a complete drag where I'm just getting bogged down in edge cases and test scenarios of things that may not be fully relevant to me, like the exact mechanism by which file permissions are calculated.
-/// let's discuss...
+// MAYBE: n2 give me a learning test showing how to use combined pipe for a command in rust
+#[test]
+fn explore_chars_vs_bytes() {
+    // A String is UTF-8 bytes. A `char` is one Unicode scalar value, which takes 1 to 4 bytes.
+    // `bytes()` yields every u8; `chars()` decodes, so yes, it can consume several bytes per item.
+    let s = "a é 🦀";
+    println!(
+        "len()={} (bytes), chars().count()={}",
+        s.len(),
+        s.chars().count()
+    );
+    println!("bytes: {:x?}", s.bytes().collect::<Vec<u8>>());
+
+    // `char_indices` shows the byte offset where each char starts. Watch the gaps.
+    for (i, c) in s.char_indices() {
+        println!("byte {i}: {c:?} ({} bytes)", c.len_utf8());
+    }
+
+    // Accumulating: `collect::<String>()` from an iterator of chars...
+    let no_spaces: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    println!("collected: {no_spaces:?}");
+
+    // ...or `push` one char at a time when the loop has more going on (`push_str` for a &str).
+    let mut out = String::new();
+    for c in s.chars() {
+        if c != ' ' {
+            out.push(c);
+        }
+    }
+    println!("pushed:    {out:?}");
+
+    // Byte offsets and char counts are different units. `skip(n)` counts chars,
+    // so it disagrees with slicing at byte offset n once there are multi-byte chars.
+    // Here 'é' occupies bytes 2..4, so byte 3 is in the middle of it.
+    // `s[3..]` would panic; `get` returns None instead.
+    println!(
+        "chars().skip(3): {:?}",
+        s.chars().skip(3).collect::<String>()
+    );
+    println!("s.get(3..):      {:?}", s.get(3..));
+    println!("s.get(5..):      {:?}", s.get(5..));
+}
+
 #[test]
 fn explore_home() {
     use std::process::Command;
