@@ -49,10 +49,35 @@ impl Lexer {
                 '\'' => result.push_str(&self.single_quoted()?),
                 '"' => result.push_str(&self.double_quoted()?),
                 _ if c.is_ascii_whitespace() => break,
-                _ => result.push_str(&self.unquoted()),
+                _ => result.push_str(&self.unquoted()?),
             }
         }
         Ok(result)
+    }
+
+    // TODO: n2 is grammar correct now?
+    // unquoted ::= ([^'"\s] | '\' .)+
+    // e38: The code now accepts `\` followed by any character, even a space or a quote, which
+    // this class excludes. How would you write "a plain character, or a backslash followed by
+    // any one character" as an alternation inside the `+`?
+    fn unquoted(&mut self) -> Result<String> {
+        let mut fragment = String::new();
+        while let Some(c) = self.peek()
+            && !c.is_ascii_whitespace()
+            && !matches!(c, '\'' | '"')
+        {
+            if c == '\\' {
+                self.bump();
+                let Some(next) = self.peek() else {
+                    bail!("Malformed input: expecting character after backslash");
+                };
+                fragment.push(next);
+            } else {
+                fragment.push(c);
+            }
+            self.bump();
+        }
+        Ok(fragment)
     }
 
     // single_quoted ::= "'" [^']* "'"
@@ -92,19 +117,6 @@ impl Lexer {
         Ok(fragment)
     }
 
-    // unquoted ::= [^'"\s]+
-    fn unquoted(&mut self) -> String {
-        let mut fragment = String::new();
-        while let Some(c) = self.peek()
-            && !c.is_ascii_whitespace()
-            && !matches!(c, '\'' | '"')
-        {
-            fragment.push(c);
-            self.bump();
-        }
-        fragment
-    }
-
     fn peek(&self) -> Option<char> {
         self.text[self.pos..].chars().next()
     }
@@ -121,25 +133,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_token_splitting() {
-        // Simple cases
+    fn test_token_splitting_unquoted() {
         assert_eq!(split_tokens("foo").unwrap(), ["foo"]);
         assert_eq!(split_tokens("echo hi").unwrap(), ["echo", "hi"]);
         assert_eq!(split_tokens(" john\tdoe  ").unwrap(), ["john", "doe"]);
+        assert_eq!(split_tokens(r"foo\ ").unwrap(), ["foo "]);
+        assert_eq!(split_tokens(r"foo\ bar").unwrap(), ["foo bar"]);
+        assert_eq!(split_tokens(r"foo\   bar").unwrap(), ["foo ", "bar"]);
+    }
 
-        // Single quotes
+    #[test]
+    fn test_token_splitting_single_quoted() {
         assert_eq!(split_tokens("foo 'bar'").unwrap(), ["foo", "bar"]);
         assert_eq!(split_tokens("'a'b").unwrap(), ["ab"]);
         assert_eq!(split_tokens("'a   b'").unwrap(), ["a   b"]);
         assert_eq!(split_tokens("''").unwrap(), [""]);
+    }
 
-        // Double quotes
+    #[test]
+    fn test_token_splitting_double_quoted() {
         assert_eq!(split_tokens(r#"foo "bar""#).unwrap(), ["foo", "bar"]);
         assert_eq!(split_tokens(r#""a"b"#).unwrap(), ["ab"]);
         assert_eq!(split_tokens(r#""a   b""#).unwrap(), ["a   b"]);
         assert_eq!(split_tokens(r#""""#).unwrap(), [""]);
+    }
 
-        // Mixed
+    #[test]
+    fn test_token_splitting_mixed() {
         assert_eq!(
             split_tokens(r#"foo "bar"s b'c'"d""#).unwrap(),
             ["foo", "bars", "bcd"]
@@ -149,8 +169,10 @@ mod tests {
             split_tokens(r#"echo 'say "hi"'"#).unwrap(),
             ["echo", r#"say "hi""#]
         );
+    }
 
-        // Malformed
+    #[test]
+    fn test_token_splitting_malformed() {
         assert!(split_tokens("foo'").is_err());
         assert!(split_tokens("\"foo").is_err());
     }
