@@ -10,7 +10,6 @@ struct Lexer {
     pos: usize,
 }
 
-// This has to handle single quoting. Double quoting is in later stage...
 impl Lexer {
     fn new(s: &str) -> Self {
         Self {
@@ -46,75 +45,81 @@ impl Lexer {
         let mut result = String::new();
         while let Some(c) = self.peek() {
             match c {
-                '\'' => result.push_str(&self.single_quoted()?),
-                '"' => result.push_str(&self.double_quoted()?),
+                '\'' => self.single_quoted(&mut result)?,
+                '"' => self.double_quoted(&mut result)?,
                 _ if c.is_ascii_whitespace() => break,
-                _ => result.push_str(&self.unquoted()?),
+                _ => self.unquoted(&mut result)?,
             }
         }
         Ok(result)
     }
 
-    // TODO: n2 is grammar correct now?
-    // unquoted ::= ([^'"\s] | '\' .)+
-    // e38: The code now accepts `\` followed by any character, even a space or a quote, which
-    // this class excludes. How would you write "a plain character, or a backslash followed by
-    // any one character" as an alternation inside the `+`?
-    fn unquoted(&mut self) -> Result<String> {
-        let mut fragment = String::new();
+    // unquoted ::= ([^'"\s\\] | \\ .)+
+    fn unquoted(&mut self, buf: &mut String) -> Result<()> {
         while let Some(c) = self.peek()
             && !c.is_ascii_whitespace()
             && !matches!(c, '\'' | '"')
         {
             if c == '\\' {
-                self.bump();
-                let Some(next) = self.peek() else {
-                    bail!("Malformed input: expecting character after backslash");
-                };
-                fragment.push(next);
+                let next = self.escape()?;
+                buf.push(next);
             } else {
-                fragment.push(c);
+                buf.push(c);
+                self.bump();
             }
-            self.bump();
         }
-        Ok(fragment)
+        Ok(())
     }
 
     // single_quoted ::= "'" [^']* "'"
-    fn single_quoted(&mut self) -> Result<String> {
+    fn single_quoted(&mut self, buf: &mut String) -> Result<()> {
         assert_eq!(self.peek(), Some('\''));
         self.bump();
-        let mut fragment = String::new();
         while let Some(c) = self.peek()
             && c != '\''
         {
-            fragment.push(c);
+            buf.push(c);
             self.bump();
         }
         let closing_quote = self.bump();
         if !matches!(closing_quote, Some('\'')) {
             bail!("Malformed input")
         }
-        Ok(fragment)
+        Ok(())
     }
 
-    // double_quoted ::= "\"" [^"]* "\""
-    // Note: eventually will have to also support escape characters in this
-    fn double_quoted(&mut self) -> Result<String> {
+    // double_quoted ::= '"' ([^"\\] | \\ .)* '"'
+    fn double_quoted(&mut self, buf: &mut String) -> Result<()> {
         assert_eq!(self.peek(), Some('"'));
         self.bump();
-        let mut fragment = String::new();
         while let Some(c) = self.peek()
             && c != '"'
         {
-            fragment.push(c);
-            self.bump();
+            if c == '\\' {
+                let next = self.escape()?;
+                if !matches!(next, '"' | '\\' | '$' | '`') {
+                    buf.push('\\');
+                }
+                buf.push(next);
+            } else {
+                buf.push(c);
+                self.bump();
+            }
         }
         let closing_quote = self.bump();
         if !matches!(closing_quote, Some('"')) {
             bail!("Malformed input")
         }
-        Ok(fragment)
+        Ok(())
+    }
+
+    fn escape(&mut self) -> Result<char> {
+        assert_eq!(self.peek(), Some('\\'));
+        self.bump();
+        let Some(next) = self.bump() else {
+            bail!("Malformed input: expecting character after backslash");
+        };
+        Ok(next)
     }
 
     fn peek(&self) -> Option<char> {
@@ -140,6 +145,11 @@ mod tests {
         assert_eq!(split_tokens(r"foo\ ").unwrap(), ["foo "]);
         assert_eq!(split_tokens(r"foo\ bar").unwrap(), ["foo bar"]);
         assert_eq!(split_tokens(r"foo\   bar").unwrap(), ["foo ", "bar"]);
+        assert_eq!(split_tokens(r#"foo\""#).unwrap(), ["foo\""]);
+        // Outside quotes a backslash always disappears, whatever follows it.
+        assert_eq!(split_tokens(r"a\b").unwrap(), ["ab"]);
+        assert_eq!(split_tokens(r"\\").unwrap(), ["\\"]);
+        assert_eq!(split_tokens(r"\'").unwrap(), ["'"]);
     }
 
     #[test]
@@ -148,6 +158,10 @@ mod tests {
         assert_eq!(split_tokens("'a'b").unwrap(), ["ab"]);
         assert_eq!(split_tokens("'a   b'").unwrap(), ["a   b"]);
         assert_eq!(split_tokens("''").unwrap(), [""]);
+        // Backslash is literal inside single quotes, even before the closing quote.
+        assert_eq!(split_tokens(r"'a\b'").unwrap(), [r"a\b"]);
+        assert_eq!(split_tokens(r"'\'").unwrap(), ["\\"]);
+        assert_eq!(split_tokens(r#"'x\"y'"#).unwrap(), [r#"x\"y"#]);
     }
 
     #[test]
@@ -156,6 +170,13 @@ mod tests {
         assert_eq!(split_tokens(r#""a"b"#).unwrap(), ["ab"]);
         assert_eq!(split_tokens(r#""a   b""#).unwrap(), ["a   b"]);
         assert_eq!(split_tokens(r#""""#).unwrap(), [""]);
+        assert_eq!(split_tokens(r#""foo\"""#).unwrap(), ["foo\""]);
+        assert_eq!(split_tokens(r#""foo\\""#).unwrap(), ["foo\\"]);
+        assert_eq!(split_tokens(r#""a\b""#).unwrap(), ["a\\b"]);
+        assert_eq!(split_tokens(r#""\$""#).unwrap(), ["$"]);
+        assert_eq!(split_tokens(r#""\`""#).unwrap(), ["`"]);
+        // `'` isn't special inside double quotes, so the backslash stays.
+        assert_eq!(split_tokens(r#""x\'y""#).unwrap(), [r"x\'y"]);
     }
 
     #[test]
@@ -169,11 +190,18 @@ mod tests {
             split_tokens(r#"echo 'say "hi"'"#).unwrap(),
             ["echo", r#"say "hi""#]
         );
+        // The same `\\` in all three contexts.
+        assert_eq!(
+            split_tokens(r#"a\\b"c\\d"'e\\f'"#).unwrap(),
+            [r"a\bc\de\\f"]
+        );
     }
 
     #[test]
     fn test_token_splitting_malformed() {
         assert!(split_tokens("foo'").is_err());
         assert!(split_tokens("\"foo").is_err());
+        // Note: REPL will never see this because read_line keeps the `\n`
+        assert!(split_tokens("foo\\").is_err());
     }
 }
