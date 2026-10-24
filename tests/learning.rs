@@ -2,7 +2,6 @@ use std::io::BufRead;
 // Unix-only extension trait: adds `.mode()` to `Permissions`.
 use std::os::unix::fs::PermissionsExt;
 
-// MAYBE: n2 give me a learning test showing how to use combined pipe for a command in rust
 #[test]
 fn explore_chars_vs_bytes() {
     // A String is UTF-8 bytes. A `char` is one Unicode scalar value, which takes 1 to 4 bytes.
@@ -317,4 +316,93 @@ fn explore_blank_line_vs_eof() {
         let n = input.read_line(&mut buf).unwrap();
         println!("n={n}, raw={buf:?}, trimmed={:?}", buf.trim());
     }
+}
+
+#[test]
+fn explore_writeln_to_dev_null() {
+    use std::io::Write;
+    // `println!` always writes to this process's stdout (fd 1); it can't be pointed elsewhere.
+    // `writeln!` is the same thing with an explicit target: anything that implements `Write`.
+    let mut null = std::fs::File::create("/dev/null").unwrap();
+    writeln!(null, "this vanishes").unwrap();
+
+    // Same macro into a real file, so you can see it worked.
+    let path = std::env::temp_dir().join("explore_writeln.txt");
+    let mut file = std::fs::File::create(&path).unwrap();
+    writeln!(file, "hello from writeln").unwrap();
+    println!("file: {:?}", std::fs::read_to_string(&path).unwrap());
+    print!("");
+
+    // A function taking `&mut impl Write` doesn't care which target it gets.
+    fn greet(out: &mut impl Write) -> std::io::Result<()> {
+        writeln!(out, "hi")
+    }
+    greet(&mut std::io::stdout()).unwrap();
+    greet(&mut null).unwrap();
+    greet(&mut std::io::sink()).unwrap(); // in-process /dev/null: no file, no syscall
+    let mut captured: Vec<u8> = Vec::new(); // Vec<u8> is a Write too, handy in tests
+    greet(&mut captured).unwrap();
+    println!("captured: {:?}", String::from_utf8(captured).unwrap());
+}
+
+#[test]
+fn explore_choose_writer_at_runtime() {
+    use std::io::Write;
+    // `let out: impl Write = if .. { File } else { Stdout }` can't compile: the two branches are
+    // different types, and `impl Trait` only names *one* concrete type chosen at compile time.
+    // To pick at runtime you need a trait object, `dyn Write`, behind some pointer.
+    let path = std::env::temp_dir().join("explore_choose_writer.txt");
+    for target in [Some(&path), None] {
+        // Option 1: `Box<dyn Write>`. One heap allocation, owns the writer, easy to return.
+        let mut boxed: Box<dyn Write> = match target {
+            Some(p) => Box::new(std::fs::File::create(p).unwrap()),
+            None => Box::new(std::io::stdout()),
+        };
+        writeln!(boxed, "boxed -> {target:?}").unwrap();
+    }
+
+    // Option 2: `&mut dyn Write` with no allocation. Each branch needs somewhere to keep its
+    // writer alive, so declare both slots up front and only initialize the one you use.
+    // Rust allows a `let` without a value as long as every read happens after an assignment.
+    let mut file;
+    let mut stdout;
+    let use_file = true;
+    let out: &mut dyn Write = if use_file {
+        file = std::fs::File::create(&path).unwrap();
+        &mut file
+    } else {
+        stdout = std::io::stdout();
+        &mut stdout
+    };
+    writeln!(out, "borrowed").unwrap();
+    println!("file now: {:?}", std::fs::read_to_string(&path).unwrap());
+}
+
+#[test]
+fn explore_peekable_into_iter_in_struct() {
+    use std::iter::Peekable;
+    use std::vec::IntoIter;
+
+    // `Vec::into_iter(self)` consumes the Vec, so it can't be called on a field behind
+    // `&self`/`&mut self`. Build the iterator once, where you own the Vec, and store *it*.
+    struct Cursor {
+        items: Peekable<IntoIter<String>>,
+    }
+
+    let v = vec!["a".to_string(), "b".to_string()];
+    let mut c = Cursor {
+        items: v.into_iter().peekable(),
+    };
+
+    // peek needs &mut: it may pull the next item from the underlying iterator and buffer it.
+    let first: Option<&String> = c.items.peek();
+    println!("peek: {first:?}");
+
+    // next hands you an owned String; nothing borrows `c` afterwards.
+    let owned: Option<String> = c.items.next();
+    println!("next: {owned:?}, then peek: {:?}", c.items.peek());
+
+    // next_if: consume only if the predicate matches.
+    let taken = c.items.next_if(|s| s == "b");
+    println!("next_if b: {taken:?}, remaining: {:?}", c.items.next());
 }
