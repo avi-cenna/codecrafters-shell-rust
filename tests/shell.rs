@@ -71,14 +71,20 @@ fn scratch_dir(case: usize) -> PathBuf {
 #[test]
 fn redirect_cases() {
     // Each case runs in its own scratch dir, which is the shell's cwd, so use relative names.
-    // Shape:
-    // RedirectCase {
-    //     setup: &[("old.txt", "previous contents\n")],
-    //     input: "echo hi > old.txt\n",
-    //     terminal: "$ $ ",
-    //     files: &[("old.txt", "hi\n")],
-    // },
-    let cases: &[RedirectCase] = &[];
+    let cases: &[RedirectCase] = &[
+        RedirectCase {
+            setup: &[("a.txt", "abcdefgh")],
+            input: "echo foo > a.txt\n",
+            terminal: "$ $ ",
+            files: &[("a.txt", "foo\n")],
+        },
+        RedirectCase {
+            setup: &[("e.txt", "...")],
+            input: "type fizzbuzz123 2> e.txt\n",
+            terminal: "$ $ ",
+            files: &[("e.txt", "fizzbuzz123: not found\n")],
+        },
+    ];
     for (i, case) in cases.iter().enumerate() {
         let dir = scratch_dir(i);
         for (name, contents) in case.setup {

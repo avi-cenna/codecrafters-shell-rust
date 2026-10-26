@@ -5,13 +5,15 @@ pub fn split_tokens(s: &str) -> Result<Vec<Token>> {
     l.split_tokens()
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Token {
     Word(String),
     Operator(Operator),
 }
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Operator {
     RedirectStdout,
-    // RedirectStderr,
+    RedirectStderr,
     // RedirectBoth,
     // Etc.
 }
@@ -54,7 +56,6 @@ impl Lexer {
     // E.g. I do not support `echo foo>/dev/null`. That must be written as `echo foo > /dev/null`.
     //
     // token ::= (single_quoted | double_quoted | unquoted)+
-    // TODO: n2 pls review this now that i am comparing span
     fn token(&mut self) -> Result<Token> {
         let start = self.pos;
         let mut buf = String::new();
@@ -69,6 +70,7 @@ impl Lexer {
         let span: &str = &self.text[start..self.pos];
         let token = match span {
             ">" | "1>" => Token::Operator(Operator::RedirectStdout),
+            "2>" => Token::Operator(Operator::RedirectStderr),
             // etc.. in later stages
             _ => Token::Word(buf),
         };
@@ -154,7 +156,6 @@ impl Lexer {
     }
 }
 
-// TODO: n2 fix the tests
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +226,21 @@ mod tests {
         );
         // The same `\\` in all three contexts.
         assert_eq!(words(r#"a\\b"c\\d"'e\\f'"#).unwrap(), [r"a\bc\de\\f"]);
+    }
+
+    #[allow(dead_code)] // until the operator table below has cases
+    fn word(s: &str) -> Token {
+        Token::Word(s.to_string())
+    }
+
+    #[test]
+    fn test_token_splitting_operators() {
+        // (input, expected tokens). Shape:
+        // ("echo hi > f", vec![word("echo"), word("hi"), Token::Operator(Operator::RedirectStdout), word("f")]),
+        let cases: &[(&str, Vec<Token>)] = &[];
+        for (input, expected) in cases {
+            assert_eq!(&split_tokens(input).unwrap(), expected, "input: {input:?}");
+        }
     }
 
     #[test]

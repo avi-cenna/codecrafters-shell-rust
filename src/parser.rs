@@ -1,32 +1,29 @@
-use crate::lexer::Token;
+use crate::lexer::{Operator, Token};
 use anyhow::{Result, bail};
-use std::io::Write;
 
 pub fn parse_tokens(s: Vec<Token>) -> Result<ShellCmd> {
+    assert_ne!(
+        s,
+        [],
+        "parse_tokens should never be called with an empty list of tokens"
+    );
     let mut l = Parser::new(s);
-    l.wip()
+    l.parse_to_cmd()
 }
 
+#[derive(Debug, PartialEq)]
 pub struct ShellCmd {
     pub name: String,
     pub args: Vec<String>,
-    pub output_type: OutputType,
+    pub stdout_dest: OutputType,
+    pub stderr_dest: OutputType,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum OutputType {
-    Stdout,
+    Inherit,
     File(String),
 }
-
-// impl OutputType {
-//     pub fn writeable(&self) -> Result<Box<dyn Write>> {
-//         let writeable: Box<dyn Write> = match &self {
-//             OutputType::File(f) => Box::new(std::fs::File::create(f)?),
-//             OutputType::Stdout => Box::new(std::io::stdout()),
-//         };
-//         Ok(writeable)
-//     }
-// }
 
 struct Parser {
     tokens: Vec<Token>,
@@ -38,57 +35,61 @@ impl Parser {
         Self { tokens: s, pos: 0 }
     }
 
-    // input ::= cmd_name (arg)* redirection?
-    // TODO: n2 help me here, something wrong again,.... should i have smaller functions for arg and cmd name?
-    fn wip(&mut self) -> Result<ShellCmd> {
-        assert!(!self.tokens.is_empty());
-
-        let name = self.word()?;
+    fn parse_to_cmd(&mut self) -> Result<ShellCmd> {
+        let Some(name) = self.word() else {
+            bail!("Malformed input: expected word to be first token")
+        };
         let mut args = vec![];
-        while let Some(Token::Word(_)) = self.peek() {
-            args.push(self.word()?);
+        while let Some(s) = self.word() {
+            args.push(s);
         }
 
-        let output_type = if let Some(Token::Operator(_)) = self.peek() {
-            let r = self.redirection()?;
-            OutputType::File(r)
-        } else {
-            OutputType::Stdout
-        };
+        let mut stdout_dest = OutputType::Inherit;
+        let mut stderr_dest = OutputType::Inherit;
+        if let Some(op) = self.operator() {
+            let Some(path) = self.word() else {
+                bail!("Malformed input: expected token after operator")
+            };
+            let output_type = OutputType::File(path);
+            match op {
+                Operator::RedirectStdout => stdout_dest = output_type,
+                Operator::RedirectStderr => stderr_dest = output_type,
+            }
+        }
+
+        if self.peek().is_some() {
+            bail!("Malformed input: unexpected token after redirection")
+        }
 
         Ok(ShellCmd {
             name,
             args,
-            output_type,
+            stdout_dest,
+            stderr_dest,
         })
     }
 
-    // fn cmd_name(&mut self) -> Result<String> {
-    //     let x = self.bump();
-    //     match x {
-    //         Some(Token::Word(s)) => Ok(s.clone()),
-    //         Some(Token::Operator(_)) => bail!("todo"),
-    //         None => unreachable!(),
-    //     }
-    // }
-
-    fn word(&mut self) -> Result<String> {
-        match self.bump() {
-            Some(Token::Word(s)) => Ok(s.clone()),
-            Some(Token::Operator(_)) => bail!("todo"),
-            None => unreachable!(),
+    /// Try to consume a word from `tokens`, returning `None` otherwise.
+    fn word(&mut self) -> Option<String> {
+        match self.peek() {
+            Some(Token::Word(s)) => {
+                let s = s.clone();
+                self.bump();
+                Some(s)
+            }
+            Some(Token::Operator(_)) | None => None,
         }
     }
 
-    fn redirection(&mut self) -> Result<String> {
-        assert!(matches!(self.peek(), Some(Token::Operator(_))));
-        self.bump();
-        match self.bump() {
-            Some(Token::Word(s)) => Ok(s.clone()),
-            Some(Token::Operator(_)) => {
-                bail!("Malformed input: cannot have two operators in a row")
+    /// Try to consume an operator from `tokens`, returning `None` otherwise.
+    fn operator(&mut self) -> Option<Operator> {
+        match self.peek() {
+            Some(Token::Operator(op)) => {
+                let op = *op;
+                self.bump();
+                Some(op)
             }
-            None => bail!("Malformed input: must have file have redirection"),
+            Some(Token::Word(_)) | None => None,
         }
     }
 
@@ -96,15 +97,80 @@ impl Parser {
         self.tokens.get(self.pos)
     }
 
-    // fn peek2(&self) -> Option<Token> {
-    //     let it  = self.tokens.into_iter();
-    //     // it.peekable().next()
-    //     None
-    // }
-
     fn bump(&mut self) -> Option<&Token> {
         let c = self.tokens.get(self.pos)?;
         self.pos += 1;
         Some(c)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn word(s: &str) -> Token {
+        Token::Word(s.to_string())
+    }
+    fn op(s: &str) -> Token {
+        match s {
+            ">" | "1>" => Token::Operator(Operator::RedirectStdout),
+            "2>" => Token::Operator(Operator::RedirectStderr),
+            _ => panic!("invalid operator"),
+        }
+    }
+
+    fn file(path: &str) -> OutputType {
+        OutputType::File(path.to_string())
+    }
+
+    /// Shorthand for an expected `ShellCmd`.
+    fn cmd(
+        name: &str,
+        args: &[&str],
+        stdout_dest: OutputType,
+        stderr_dest: OutputType,
+    ) -> ShellCmd {
+        ShellCmd {
+            name: name.to_string(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            stdout_dest,
+            stderr_dest,
+        }
+    }
+
+    #[test]
+    fn test_parse_ok() {
+        // (tokens, expected command)
+        let cases: Vec<(Vec<Token>, ShellCmd)> = vec![
+            (
+                vec![word("echo"), word("foo"), op(">"), word("/dev/null")],
+                cmd("echo", &["foo"], file("/dev/null"), OutputType::Inherit),
+            ),
+            (
+                vec![word("fish"), word("--help")],
+                cmd(
+                    "fish",
+                    &["--help"],
+                    OutputType::Inherit,
+                    OutputType::Inherit,
+                ),
+            ),
+        ];
+        for (tokens, expected) in cases {
+            let input = format!("{tokens:?}");
+            let actual = parse_tokens(tokens).unwrap_or_else(|e| panic!("input: {input}: {e}"));
+            assert_eq!(actual, expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn test_parse_err() {
+        // Token lists that must be rejected. Must be non-empty: main filters out empty lines
+        // before the parser runs, and the parser asserts on it.
+        let cases: Vec<Vec<Token>> = vec![vec![word("echo"), word("foo"), op("2>")]];
+        for tokens in cases {
+            let input = format!("{tokens:?}");
+            assert!(parse_tokens(tokens).is_err(), "input: {input}");
+        }
     }
 }

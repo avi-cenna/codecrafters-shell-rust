@@ -1,5 +1,4 @@
-use std::fs::File;
-use crate::parser::OutputType;
+use crate::parser::ShellCmd;
 use anyhow::{Context, Result, bail};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -28,14 +27,13 @@ impl BuiltinCmd {
     }
 }
 
-pub fn run_echo(args: &[String], redirect: &OutputType) -> Result<()> {
-    let mut out = output_buffer(redirect)?;
-    writeln!(out, "{}", args.join(" "))?;
+pub fn run_echo(cmd: &ShellCmd, out: &mut dyn Write) -> Result<()> {
+    writeln!(out, "{}", cmd.args.join(" "))?;
     Ok(())
 }
 
-pub fn run_cd(args: &[String]) -> Result<()> {
-    let [arg] = args else {
+pub fn run_cd(cmd: &ShellCmd) -> Result<()> {
+    let [arg] = cmd.args.as_slice() else {
         bail!("expected exactly one argument")
     };
     let target = if arg == "~" {
@@ -51,42 +49,36 @@ pub fn run_cd(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-pub fn run_pwd(args: &[String], redirect: &OutputType) -> Result<()> {
-    if !args.is_empty() {
+pub fn run_pwd(cmd: &ShellCmd, out: &mut dyn Write) -> Result<()> {
+    if !&cmd.args.is_empty() {
         bail!("expected no arguments")
     }
-    let mut out = output_buffer(redirect)?;
     let cwd = std::env::current_dir()?;
     writeln!(out, "{}", cwd.display())?;
     Ok(())
 }
 
-// TODO: n2 pls review
-pub fn run_type(args: &[String], redirect: &OutputType) -> Result<()> {
-    let mut out = output_buffer(redirect)?;
-    for arg in args {
+pub fn run_type(cmd: &ShellCmd, out: &mut dyn Write, err: &mut dyn Write) -> Result<()> {
+    for arg in &cmd.args {
         if BuiltinCmd::from_name(arg).is_some() {
             writeln!(out, "{arg} is a shell builtin")?;
         } else if let Some(p) = find_executable(arg) {
             writeln!(out, "{} is {}", arg, p.display())?;
         } else {
-            eprintln!("{arg}: not found");
+            writeln!(err, "{arg}: not found")?;
         }
     }
     Ok(())
 }
 
-pub fn run_program(name: &str, args: &[String], output_type: &OutputType) -> Result<()> {
-    // dbg!(name, args); // only for manual inspection
-    let stdio = match output_type {
-        OutputType::Stdout => Stdio::inherit(),
-        OutputType::File(fpath) => {
-            let file = File::create(fpath)?;
-            Stdio::try_from(file)?
-        }
-    };
-    if let Some(path) = find_executable(name) {
-        let _ = Command::new(path).arg0(name).args(args).stdout(stdio).status()?;
+pub fn run_program(cmd: &ShellCmd, out: Stdio, err: Stdio) -> Result<()> {
+    if let Some(path) = find_executable(&cmd.name) {
+        let _ = Command::new(path)
+            .arg0(&cmd.name)
+            .args(&cmd.args)
+            .stdout(out)
+            .stderr(err)
+            .status()?;
         // for now, don't do anything with exit status
     } else {
         bail!("command not found");
@@ -116,12 +108,4 @@ fn find_executable(fname: &str) -> Option<PathBuf> {
 fn is_executable(f: &Path) -> bool {
     f.metadata()
         .is_ok_and(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
-}
-
-fn output_buffer(ot: &OutputType) -> Result<Box<dyn Write>> {
-    let buf: Box<dyn Write> = match ot {
-        OutputType::File(f) => Box::new(std::fs::File::create(f)?),
-        OutputType::Stdout => Box::new(std::io::stdout()),
-    };
-    Ok(buf)
 }
