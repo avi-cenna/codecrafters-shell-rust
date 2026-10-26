@@ -22,7 +22,8 @@ pub struct ShellCmd {
 #[derive(Debug, PartialEq)]
 pub enum OutputType {
     Inherit,
-    File(String),
+    OverwriteFile(String),
+    AppendFile(String),
 }
 
 struct Parser {
@@ -50,10 +51,12 @@ impl Parser {
             let Some(path) = self.word() else {
                 bail!("Malformed input: expected token after operator")
             };
-            let output_type = OutputType::File(path);
+            // QUESTION: n2  is this idiomatic?
             match op {
-                Operator::RedirectStdout => stdout_dest = output_type,
-                Operator::RedirectStderr => stderr_dest = output_type,
+                Operator::RedirectStdout => stdout_dest = OutputType::OverwriteFile(path),
+                Operator::RedirectStderr => stderr_dest = OutputType::OverwriteFile(path),
+                Operator::AppendStdout => stdout_dest = OutputType::AppendFile(path),
+                Operator::AppendStderr => stderr_dest = OutputType::AppendFile(path),
             }
         }
 
@@ -107,20 +110,10 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn word(s: &str) -> Token {
-        Token::Word(s.to_string())
-    }
-    fn op(s: &str) -> Token {
-        match s {
-            ">" | "1>" => Token::Operator(Operator::RedirectStdout),
-            "2>" => Token::Operator(Operator::RedirectStderr),
-            _ => panic!("invalid operator"),
-        }
-    }
+    use crate::lexer::split_tokens;
 
     fn file(path: &str) -> OutputType {
-        OutputType::File(path.to_string())
+        OutputType::OverwriteFile(path.to_string())
     }
 
     /// Shorthand for an expected `ShellCmd`.
@@ -143,11 +136,11 @@ mod tests {
         // (tokens, expected command)
         let cases: Vec<(Vec<Token>, ShellCmd)> = vec![
             (
-                vec![word("echo"), word("foo"), op(">"), word("/dev/null")],
+                split_tokens("echo foo > /dev/null").unwrap(),
                 cmd("echo", &["foo"], file("/dev/null"), OutputType::Inherit),
             ),
             (
-                vec![word("fish"), word("--help")],
+                split_tokens("fish --help").unwrap(),
                 cmd(
                     "fish",
                     &["--help"],
@@ -167,7 +160,10 @@ mod tests {
     fn test_parse_err() {
         // Token lists that must be rejected. Must be non-empty: main filters out empty lines
         // before the parser runs, and the parser asserts on it.
-        let cases: Vec<Vec<Token>> = vec![vec![word("echo"), word("foo"), op("2>")]];
+        let cases: Vec<Vec<Token>> = vec![
+            split_tokens("echo foo 2>").unwrap(),
+            split_tokens("echo bar >>").unwrap(),
+        ];
         for tokens in cases {
             let input = format!("{tokens:?}");
             assert!(parse_tokens(tokens).is_err(), "input: {input}");

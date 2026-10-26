@@ -77,7 +77,14 @@ fn process_line(line: &str) -> Result<ControlFlow<()>> {
 
 fn open_redirect(output_type: &OutputType) -> Result<Option<File>> {
     Ok(match output_type {
-        OutputType::File(path) => Some(File::create(path).with_context(|| path.clone())?),
         OutputType::Inherit => None,
+        OutputType::OverwriteFile(path) => Some(File::create(path).with_context(|| path.clone())?),
+        OutputType::AppendFile(path) => Some(
+            File::options()
+                .create(true)
+                .append(true)
+                .open(path)
+                .with_context(|| path.clone())?,
+        ),
     })
 }

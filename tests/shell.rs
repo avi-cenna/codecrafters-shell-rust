@@ -84,6 +84,38 @@ fn redirect_cases() {
             terminal: "$ $ ",
             files: &[("e.txt", "fizzbuzz123: not found\n")],
         },
+        RedirectCase {
+            setup: &[("o.txt", "___")],
+            input: "echo fizzbuzz >> o.txt\n",
+            terminal: "$ $ ",
+            files: &[("o.txt", "___fizzbuzz\n")],
+        },
+        RedirectCase {
+            setup: &[("e.txt", "...")],
+            input: "type fizzbuzz123 2>> e.txt\n",
+            terminal: "$ $ ",
+            files: &[("e.txt", "...fizzbuzz123: not found\n")],
+        },
+        RedirectCase {
+            setup: &[("a.txt", "..."), ("e.txt", "")],
+            input: "cat a.txt missing.txt 2> e.txt\n",
+            terminal: "$ ...$ ",
+            files: &[
+                ("a.txt", "..."),
+                ("e.txt", "cat: missing.txt: No such file or directory\n"),
+            ],
+        },
+        RedirectCase {
+            setup: &[("a.txt", "..."), ("b.txt", "")],
+            input: "cat a.txt missing.txt > b.txt\n",
+            terminal: "$ cat: missing.txt: No such file or directory\n$ ",
+            files: &[("a.txt", "..."), ("b.txt", "...")],
+        },
+        // e38 (test gap): all four cases go through builtins (echo, type), so
+        // the external-program path, `Stdio::from` in main.rs, never runs
+        // here. The tester mostly redirects real programs like ls and cat.
+        // Hint: pick a program that writes to both streams, redirect one, and
+        // check that the other still reaches the terminal.
     ];
     for (i, case) in cases.iter().enumerate() {
         let dir = scratch_dir(i);

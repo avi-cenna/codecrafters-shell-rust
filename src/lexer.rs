@@ -10,12 +10,13 @@ pub enum Token {
     Word(String),
     Operator(Operator),
 }
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Operator {
     RedirectStdout,
     RedirectStderr,
-    // RedirectBoth,
-    // Etc.
+    AppendStdout,
+    AppendStderr,
 }
 
 struct Lexer {
@@ -71,7 +72,8 @@ impl Lexer {
         let token = match span {
             ">" | "1>" => Token::Operator(Operator::RedirectStdout),
             "2>" => Token::Operator(Operator::RedirectStderr),
-            // etc.. in later stages
+            ">>" | "1>>" => Token::Operator(Operator::AppendStdout),
+            "2>>" => Token::Operator(Operator::AppendStderr),
             _ => Token::Word(buf),
         };
         Ok(token)
@@ -228,16 +230,29 @@ mod tests {
         assert_eq!(words(r#"a\\b"c\\d"'e\\f'"#).unwrap(), [r"a\bc\de\\f"]);
     }
 
-    #[allow(dead_code)] // until the operator table below has cases
-    fn word(s: &str) -> Token {
-        Token::Word(s.to_string())
-    }
-
     #[test]
     fn test_token_splitting_operators() {
-        // (input, expected tokens). Shape:
-        // ("echo hi > f", vec![word("echo"), word("hi"), Token::Operator(Operator::RedirectStdout), word("f")]),
-        let cases: &[(&str, Vec<Token>)] = &[];
+        // (input, expected tokens).
+        let cases: &[(&str, Vec<Token>)] = &[
+            (
+                "echo foo > bar",
+                vec![word("echo"), word("foo"), op(">"), word("bar")],
+            ),
+            (
+                "echo foo 1> bar",
+                vec![word("echo"), word("foo"), op("1>"), word("bar")],
+            ),
+            ("ls >> bar", vec![word("ls"), op(">>"), word("bar")]),
+            ("ls 1>> bar", vec![word("ls"), op("1>>"), word("bar")]),
+            (
+                "type fizzbuzz 2> bar",
+                vec![word("type"), word("fizzbuzz"), op("2>"), word("bar")],
+            ),
+            (
+                "type fizzbuzz 2>> bar",
+                vec![word("type"), word("fizzbuzz"), op("2>>"), word("bar")],
+            ),
+        ];
         for (input, expected) in cases {
             assert_eq!(&split_tokens(input).unwrap(), expected, "input: {input:?}");
         }
@@ -249,5 +264,19 @@ mod tests {
         assert!(words("\"foo").is_err());
         // Note: REPL will never see this because read_line keeps the `\n`
         assert!(words("foo\\").is_err());
+    }
+
+    fn word(s: &str) -> Token {
+        Token::Word(s.to_string())
+    }
+
+    fn op(s: &str) -> Token {
+        match s {
+            ">" | "1>" => Token::Operator(Operator::RedirectStdout),
+            "2>" => Token::Operator(Operator::RedirectStderr),
+            ">>" | "1>>" => Token::Operator(Operator::AppendStdout),
+            "2>>" => Token::Operator(Operator::AppendStderr),
+            _ => panic!("invalid operator"),
+        }
     }
 }
