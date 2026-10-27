@@ -25,6 +25,10 @@ impl BuiltinCmd {
             _ => None,
         }
     }
+    pub fn all_names() -> [&'static str; 5] {
+        const NAMES: [&str; 5] = ["cd", "exit", "echo", "pwd", "type"];
+        NAMES
+    }
 }
 
 pub fn run_echo(cmd: &ShellCmd, out: &mut dyn Write) -> Result<()> {

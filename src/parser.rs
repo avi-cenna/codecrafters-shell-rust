@@ -51,7 +51,6 @@ impl Parser {
             let Some(path) = self.word() else {
                 bail!("Malformed input: expected token after operator")
             };
-            // QUESTION: n2  is this idiomatic?
             match op {
                 Operator::RedirectStdout => stdout_dest = OutputType::OverwriteFile(path),
                 Operator::RedirectStderr => stderr_dest = OutputType::OverwriteFile(path),

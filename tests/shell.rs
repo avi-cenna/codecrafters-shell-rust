@@ -111,11 +111,6 @@ fn redirect_cases() {
             terminal: "$ cat: missing.txt: No such file or directory\n$ ",
             files: &[("a.txt", "..."), ("b.txt", "...")],
         },
-        // e38 (test gap): all four cases go through builtins (echo, type), so
-        // the external-program path, `Stdio::from` in main.rs, never runs
-        // here. The tester mostly redirects real programs like ls and cat.
-        // Hint: pick a program that writes to both streams, redirect one, and
-        // check that the other still reaches the terminal.
     ];
     for (i, case) in cases.iter().enumerate() {
         let dir = scratch_dir(i);
