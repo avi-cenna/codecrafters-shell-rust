@@ -10,11 +10,12 @@ use crate::parser::OutputType;
 use anyhow::{Context, Result};
 use itertools::Itertools;
 use rustyline::completion::Completer;
+use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
-use rustyline::{Editor, Helper};
+use rustyline::{CompletionType, Config, Editor, Helper};
 use std::fs::File;
 use std::io::{self, Write};
 use std::ops::ControlFlow;
@@ -26,7 +27,10 @@ fn main() -> Result<()> {
 }
 
 fn repl_loop() -> Result<()> {
-    let mut rl = Editor::new()?;
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .build();
+    let mut rl = Editor::with_config(config)?;
     rl.set_helper(Some(SimpleCompleter {}));
     loop {
         let readline = rl.readline("$ ");
@@ -110,6 +114,8 @@ pub type ReadlineResult<T> = result::Result<T, ReadlineError>;
 
 struct SimpleCompleter;
 impl Completer for SimpleCompleter {
+    // note:: consider updating this to completion::Pair so we can separate
+    // display logic from insertion logic (insertion requires appending a space)
     type Candidate = String;
 
     fn complete(
@@ -128,8 +134,10 @@ fn complete_candidates(line: &str) -> Vec<String> {
     if line.trim().is_empty() {
         return vec![];
     }
+    // let f = rustyline::completion::Pair{};
 
     let builtins = BuiltinCmd::all_names();
+    // TODO: n2 is it idiomatic to do <_> i think <String> is clearer? what are pros/cons?
     let builtin_cand: Vec<_> = builtins
         .iter()
         .filter(|builtin_name| builtin_name.starts_with(line))
@@ -145,6 +153,12 @@ fn complete_candidates(line: &str) -> Vec<String> {
     builtin_cand
         .into_iter()
         .chain(executable_cand)
+        // e38: possible bug once List mode is on: the TAB-TAB list prints each
+        // candidate's display(), and for a String that's the same as what gets
+        // inserted, trailing space included. So the list line ends in a space and
+        // columns pad wider. If the tester matches that line exactly, it fails.
+        // However, CodeCrafters tests pass without this e38...
+        // See note above: may decide to use Pair here, but not sure yet.
         .map(|s| s + " ")
         .unique()
         .sorted()
