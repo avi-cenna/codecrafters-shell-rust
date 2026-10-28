@@ -1,11 +1,10 @@
+use crate::executables::find_executable;
 use crate::parser::ShellCmd;
 use anyhow::{Context, Result, bail};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::prelude::CommandExt;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
 
+#[derive(Copy, Clone)]
 pub enum BuiltinCmd {
     Cd,
     Echo,
@@ -16,20 +15,23 @@ pub enum BuiltinCmd {
 
 impl BuiltinCmd {
     pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "cd" => Some(Self::Cd),
-            "exit" => Some(Self::Exit),
-            "echo" => Some(Self::Echo),
-            "pwd" => Some(Self::Pwd),
-            "type" => Some(Self::Type),
-            _ => None,
-        }
+        BUILTIN_TABLE
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, cmd)| *cmd)
     }
     pub fn all_names() -> [&'static str; 5] {
-        const NAMES: [&str; 5] = ["cd", "exit", "echo", "pwd", "type"];
-        NAMES
+        BUILTIN_TABLE.map(|(n, _)| n)
     }
 }
+
+const BUILTIN_TABLE: [(&str, BuiltinCmd); 5] = [
+    ("cd", BuiltinCmd::Cd),
+    ("exit", BuiltinCmd::Exit),
+    ("echo", BuiltinCmd::Echo),
+    ("pwd", BuiltinCmd::Pwd),
+    ("type", BuiltinCmd::Type),
+];
 
 pub fn run_echo(cmd: &ShellCmd, out: &mut dyn Write) -> Result<()> {
     writeln!(out, "{}", cmd.args.join(" "))?;
@@ -73,43 +75,4 @@ pub fn run_type(cmd: &ShellCmd, out: &mut dyn Write, err: &mut dyn Write) -> Res
         }
     }
     Ok(())
-}
-
-pub fn run_program(cmd: &ShellCmd, out: Stdio, err: Stdio) -> Result<()> {
-    if let Some(path) = find_executable(&cmd.name) {
-        let _ = Command::new(path)
-            .arg0(&cmd.name)
-            .args(&cmd.args)
-            .stdout(out)
-            .stderr(err)
-            .status()?;
-        // for now, don't do anything with exit status
-    } else {
-        bail!("command not found");
-    }
-    Ok(())
-}
-
-fn find_executable(fname: &str) -> Option<PathBuf> {
-    if fname.contains('/') {
-        let candidate = PathBuf::from(fname);
-        if is_executable(&candidate) {
-            Some(candidate)
-        } else {
-            None
-        }
-    } else {
-        let path = std::env::var_os("PATH")?;
-        let mut dirs = std::env::split_paths(&path);
-        dirs.find(|dir| {
-            let candidate = dir.join(fname);
-            is_executable(&candidate)
-        })
-        .map(|dir| dir.join(fname))
-    }
-}
-
-fn is_executable(f: &Path) -> bool {
-    f.metadata()
-        .is_ok_and(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
 }

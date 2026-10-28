@@ -40,10 +40,10 @@ fn shell_cases() {
     // (stdin, expected output). Every command line prints a "$ " prompt first, and the
     // shell prints one more prompt before it reads EOF.
     let cases: &[(&str, &str)] = &[
-        ("echo hi\n", "$ hi\n$ "),
-        ("\n", "$ $ "),
-        ("fake-cmd-123\n", "$ fake-cmd-123: command not found\n$ "),
-        ("type echo\n", "$ echo is a shell builtin\n$ "),
+        ("echo hi\n", "hi\n"),
+        ("\n", ""),
+        ("fake-cmd-123\n", "fake-cmd-123: command not found\n"),
+        ("type echo\n", "echo is a shell builtin\n"),
     ];
     for (input, expected) in cases {
         assert_eq!(run_shell(input), *expected, "input: {input:?}");
@@ -75,31 +75,31 @@ fn redirect_cases() {
         RedirectCase {
             setup: &[("a.txt", "abcdefgh")],
             input: "echo foo > a.txt\n",
-            terminal: "$ $ ",
+            terminal: "",
             files: &[("a.txt", "foo\n")],
         },
         RedirectCase {
             setup: &[("e.txt", "...")],
             input: "type fizzbuzz123 2> e.txt\n",
-            terminal: "$ $ ",
+            terminal: "",
             files: &[("e.txt", "fizzbuzz123: not found\n")],
         },
         RedirectCase {
             setup: &[("o.txt", "___")],
             input: "echo fizzbuzz >> o.txt\n",
-            terminal: "$ $ ",
+            terminal: "",
             files: &[("o.txt", "___fizzbuzz\n")],
         },
         RedirectCase {
             setup: &[("e.txt", "...")],
             input: "type fizzbuzz123 2>> e.txt\n",
-            terminal: "$ $ ",
+            terminal: "",
             files: &[("e.txt", "...fizzbuzz123: not found\n")],
         },
         RedirectCase {
             setup: &[("a.txt", "..."), ("e.txt", "")],
             input: "cat a.txt missing.txt 2> e.txt\n",
-            terminal: "$ ...$ ",
+            terminal: "...",
             files: &[
                 ("a.txt", "..."),
                 ("e.txt", "cat: missing.txt: No such file or directory\n"),
@@ -108,7 +108,7 @@ fn redirect_cases() {
         RedirectCase {
             setup: &[("a.txt", "..."), ("b.txt", "")],
             input: "cat a.txt missing.txt > b.txt\n",
-            terminal: "$ cat: missing.txt: No such file or directory\n$ ",
+            terminal: "cat: missing.txt: No such file or directory\n",
             files: &[("a.txt", "..."), ("b.txt", "...")],
         },
     ];

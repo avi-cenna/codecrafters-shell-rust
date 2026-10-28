@@ -1,18 +1,20 @@
 mod builtins;
+mod executables;
 mod lexer;
 mod parser;
 
-use crate::builtins::{BuiltinCmd, run_cd, run_echo, run_program, run_pwd, run_type};
+use crate::builtins::{BuiltinCmd, run_cd, run_echo, run_pwd, run_type};
+use crate::executables::{all_executables_on_path, run_program};
 use crate::lexer::split_tokens;
 use crate::parser::OutputType;
 use anyhow::{Context, Result};
+use itertools::Itertools;
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
-use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
-use rustyline::{DefaultEditor, Editor, Helper};
+use rustyline::{Editor, Helper};
 use std::fs::File;
 use std::io::{self, Write};
 use std::ops::ControlFlow;
@@ -24,8 +26,6 @@ fn main() -> Result<()> {
 }
 
 fn repl_loop() -> Result<()> {
-    // `()` can be used when no completer is required
-    // let mut rl: Editor<SimpleCompleter, DefaultHistory> = Editor::new()?;
     let mut rl = Editor::new()?;
     rl.set_helper(Some(SimpleCompleter {}));
     loop {
@@ -118,24 +118,56 @@ impl Completer for SimpleCompleter {
         _pos: usize,
         _ctx: &rustyline::Context<'_>,
     ) -> ReadlineResult<(usize, Vec<String>)> {
-        let builtins = BuiltinCmd::all_names();
-        let cand = builtins
-            .iter()
-            .find(|builtin_name| builtin_name.starts_with(line))
-            .map_or(vec![], |x| vec![x.to_string() + " "]);
-        Ok((0, cand))
-        // if line == "rus" {
-        //     vec![line.to_owned() + "t "]
-        // } else if line == "ru" {
-        //     vec!["rust ".to_owned(), "rush ".to_owned()]
-        // } else {
-        //     vec![]
-        // },
+        // For now, complete full line. eventually we may need to get the word under position
+        let c = complete_candidates(line);
+        Ok((0, c))
     }
 }
+
+fn complete_candidates(line: &str) -> Vec<String> {
+    if line.trim().is_empty() {
+        return vec![];
+    }
+
+    let builtins = BuiltinCmd::all_names();
+    let builtin_cand: Vec<_> = builtins
+        .iter()
+        .filter(|builtin_name| builtin_name.starts_with(line))
+        .map(ToString::to_string)
+        .collect();
+    let executable_cand: Vec<_> = all_executables_on_path()
+        .unwrap_or_default()
+        .iter()
+        .map(|x| x.file_name().display().to_string())
+        .filter(|p| p.starts_with(line))
+        .collect();
+
+    builtin_cand
+        .into_iter()
+        .chain(executable_cand)
+        .map(|s| s + " ")
+        .unique()
+        .sorted()
+        .collect()
+}
+
 impl Hinter for SimpleCompleter {
     type Hint = String;
 }
 impl Helper for SimpleCompleter {}
 impl Highlighter for SimpleCompleter {}
 impl Validator for SimpleCompleter {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_complete_candidates() {
+        assert_eq!(complete_candidates("pw")[0..1], ["pwd "]);
+        assert_eq!(
+            complete_candidates("rust-"),
+            ["rust-analyzer ", "rust-gdb ", "rust-gdbgui ", "rust-lldb "]
+        );
+    }
+}
