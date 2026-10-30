@@ -1,7 +1,7 @@
 use crate::parser::ShellCmd;
 use anyhow::{Result, bail};
 use std::fs;
-use std::fs::DirEntry;
+use std::fs::{DirEntry, FileType};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::prelude::CommandExt;
 use std::path::{Path, PathBuf};
@@ -41,18 +41,43 @@ pub fn find_executable(fname: &str) -> Option<PathBuf> {
     }
 }
 
-pub fn all_executables_on_path() -> Result<Vec<DirEntry>> {
+pub fn all_executables_on_path() -> Result<Vec<PathInfo>> {
     let Some(path) = std::env::var_os("PATH") else {
         bail!("Failed to get PATH variable")
     };
     let dirs = std::env::split_paths(&path);
-    let entries: Vec<DirEntry> = dirs
-        .filter_map(|x| fs::read_dir(x).ok())
-        .flatten() // Flatten to get all DirEntry Results
-        .filter_map(Result::ok)
-        .filter(|p| is_executable(&p.path()))
+    let entries: Vec<PathInfo> = dirs
+        .filter_map(|x| all_paths_in_dir(&x).ok())
+        .flatten() 
+        .filter(|p| is_executable(&p.path))
         .collect();
     Ok(entries)
+}
+
+pub struct PathInfo {
+    pub path: PathBuf,
+    pub file_name: String,
+    pub file_type: FileType,
+}
+
+pub fn all_paths_in_dir<P: AsRef<Path>>(dir: P) -> Result<Vec<PathInfo>> {
+    let path_infos: Vec<PathInfo> = fs::read_dir(dir)?
+        .flatten() // Flatten to get all DirEntry Results
+        .filter_map(|e| {
+            let file_name = e.file_name().display().to_string();
+            let file_type = e.file_type();
+            let path = e.path();
+            match file_type {
+                Ok(file_type) => Some(PathInfo {
+                    path,
+                    file_name,
+                    file_type,
+                }),
+                Err(_) => None,
+            }
+        })
+        .collect();
+    Ok(path_infos)
 }
 
 pub fn is_executable(f: &Path) -> bool {
