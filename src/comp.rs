@@ -70,7 +70,7 @@ fn compl1(line: &str) -> Vec<String> {
 
 fn comp2(w: &str) -> Vec<String> {
     let (stem, prefix) = match w.rfind('/') {
-        Some(i) => (&w[..=i], &w[i+1..]),
+        Some(i) => (&w[..=i], &w[i + 1..]),
         None => ("", w),
     };
     let search_dir = if stem.is_empty() { "." } else { stem };
@@ -89,6 +89,8 @@ fn comp2(w: &str) -> Vec<String> {
                 format!("{stem}{} ", s.file_name)
             }
         })
+        .unique()
+        .sorted()
         .collect();
     filename_candidates
 }
@@ -197,7 +199,6 @@ mod tests {
     fn test_c2() {
         let a = comp2("src/");
         assert!(!a.is_empty());
-            // assert_eq!(extract_word(input, pos), expected, "input: {input:?}");
+        // assert_eq!(extract_word(input, pos), expected, "input: {input:?}");
     }
-
 }
