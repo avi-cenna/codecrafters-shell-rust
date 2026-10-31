@@ -1,15 +1,15 @@
-mod builtins;
-mod executables;
+mod commands;
+mod completion;
+mod filesystem;
 mod lexer;
 mod parser;
-mod comp;
 
-use crate::builtins::{BuiltinCmd, run_cd, run_echo, run_pwd, run_type};
-use crate::comp::SimpleCompleter;
-use crate::executables::run_program;
+use crate::commands::{BuiltinCmd, run_cd, run_echo, run_pwd, run_type};
+use crate::completion::HybridCompleter;
 use crate::lexer::split_tokens;
 use crate::parser::OutputType;
 use anyhow::{Context, Result};
+use commands::run_program;
 use rustyline::error::ReadlineError;
 use rustyline::{CompletionType, Config, Editor};
 use std::fs::File;
@@ -26,7 +26,7 @@ fn repl_loop() -> Result<()> {
         .completion_type(CompletionType::List)
         .build();
     let mut rl = Editor::with_config(config)?;
-    rl.set_helper(Some(SimpleCompleter {}));
+    rl.set_helper(Some(HybridCompleter {}));
     loop {
         let readline = rl.readline("$ ");
         match readline {
@@ -103,4 +103,3 @@ fn open_redirect(output_type: &OutputType) -> Result<Option<File>> {
         ),
     })
 }
-

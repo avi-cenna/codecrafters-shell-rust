@@ -1,8 +1,10 @@
-use crate::executables::find_executable;
+use crate::filesystem::find_executable;
 use crate::parser::ShellCmd;
 use anyhow::{Context, Result, bail};
 use std::io::Write;
+use std::os::unix::prelude::CommandExt;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 #[derive(Copy, Clone)]
 pub enum BuiltinCmd {
@@ -73,6 +75,21 @@ pub fn run_type(cmd: &ShellCmd, out: &mut dyn Write, err: &mut dyn Write) -> Res
         } else {
             writeln!(err, "{arg}: not found")?;
         }
+    }
+    Ok(())
+}
+
+pub fn run_program(cmd: &ShellCmd, out: Stdio, err: Stdio) -> Result<()> {
+    if let Some(path) = find_executable(&cmd.name) {
+        let _ = Command::new(path)
+            .arg0(&cmd.name)
+            .args(&cmd.args)
+            .stdout(out)
+            .stderr(err)
+            .status()?;
+        // for now, don't do anything with exit status
+    } else {
+        bail!("command not found");
     }
     Ok(())
 }

@@ -7,6 +7,7 @@ pub fn split_tokens(s: &str) -> Result<Vec<Token>> {
 
 #[derive(Debug, PartialEq)]
 pub enum Token {
+    // Note: in the future, consider also capturing a Range<usize> to denote the span of the token
     Word(String),
     Operator(Operator),
 }

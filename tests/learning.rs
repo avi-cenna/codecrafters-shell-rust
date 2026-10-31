@@ -323,20 +323,19 @@ fn explore_writeln_to_dev_null() {
     use std::io::Write;
     // `println!` always writes to this process's stdout (fd 1); it can't be pointed elsewhere.
     // `writeln!` is the same thing with an explicit target: anything that implements `Write`.
-    let mut null = std::fs::File::create("/dev/null").unwrap();
-    writeln!(null, "this vanishes").unwrap();
-
-    // Same macro into a real file, so you can see it worked.
-    let path = std::env::temp_dir().join("explore_writeln.txt");
-    let mut file = std::fs::File::create(&path).unwrap();
-    writeln!(file, "hello from writeln").unwrap();
-    println!("file: {:?}", std::fs::read_to_string(&path).unwrap());
-    print!("");
-
     // A function taking `&mut impl Write` doesn't care which target it gets.
     fn greet(out: &mut impl Write) -> std::io::Result<()> {
         writeln!(out, "hi")
     }
+    let mut null = std::fs::File::create("/dev/null").unwrap();
+
+    writeln!(null, "this vanishes").unwrap();
+    let path = std::env::temp_dir().join("explore_writeln.txt");
+    let mut file = std::fs::File::create(&path).unwrap();
+    writeln!(file, "hello from writeln").unwrap();
+    println!("file: {:?}", std::fs::read_to_string(&path).unwrap());
+
+    print!("");
     greet(&mut std::io::stdout()).unwrap();
     greet(&mut null).unwrap();
     greet(&mut std::io::sink()).unwrap(); // in-process /dev/null: no file, no syscall
