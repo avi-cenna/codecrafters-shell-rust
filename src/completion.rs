@@ -1,5 +1,5 @@
 use crate::commands::BuiltinCmd;
-use crate::filesystem::{get_all_paths_in_dir, PathInfo, is_executable};
+use crate::filesystem::{PathInfo, get_all_paths_in_dir, is_executable};
 use itertools::Itertools;
 use rustyline::Helper;
 use rustyline::completion::Completer;
@@ -126,7 +126,6 @@ const fn is_break_char(c: char) -> bool {
 
 const ESCAPE_CHAR: char = '\\';
 
-
 fn extract_word(line: &str, pos: usize) -> (usize, &str) {
     let line = &line[..pos];
     if line.is_empty() {
@@ -155,8 +154,8 @@ fn extract_word(line: &str, pos: usize) -> (usize, &str) {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
     use super::*;
+    use std::ffi::OsString;
 
     /// Creates a fresh scratch dir holding an empty executable file per name, and
     /// returns it as a one-entry PATH.
