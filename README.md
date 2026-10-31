@@ -1,35 +1,28 @@
 [![progress-banner](https://backend.codecrafters.io/progress/shell/98f96b55-76cb-4c84-8f58-8b89f1e5c15f)](https://app.codecrafters.io/users/avi-cenna?r=2qF)
 
-This is a starting point for Rust solutions to the
-["Build Your Own Shell" Challenge](https://app.codecrafters.io/courses/shell/overview).
 
-In this challenge, you'll build your own POSIX compliant shell that's capable of
-interpreting shell commands, running external programs and builtin commands like
-cd, pwd, echo and more. Along the way, you'll learn about shell command parsing,
-REPLs, builtin commands, and more.
+This repo is a small POSIX-style shell in Rust, built as a learning project through CodeCrafters.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+## Features
 
-# Passing the first stage
+- Shell builtins such as `echo`, `type`, `pwd`, and `cd`
+- Running external programs via `PATH` lookup
+- Single and double quoting with backslash escapes
+- Output redirection using operators like `>`, `>>`, `2>`, `2>>`
+- Tab completion for commands and file paths
 
-The entry point for your `shell` implementation is in `src/main.rs`. Study and
-uncomment the relevant code, then run the command below to execute the tests on
-our servers:
+## How it’s built
 
-```sh
-codecrafters submit
-```
+- Commands are tokenized via a hand-written lexer with one method per grammar rule, then parsed into the `ShellCmd` struct, and finally dispatched to a builtin or an external program.
+- Redirect targets are opened once. Builtins write through `Write`, and external programs inherit the file descriptor via `Stdio`.
+- Testing: unit tests for the lexer, parser, and completion, plus a black-box harness that drives the binary and checks output and redirect files.
+- Known limits: operators need surrounding spaces (`echo hi > f`, not `echo hi>f`), and completion doesn’t handle quoted or space-containing filenames.
+- Run with `cargo run [--release]`; test with `cargo test`.
 
-Time to move on to the next stage!
+## What I learned
 
-# Stage 2 & beyond
+The most interesting thing I learned was how to write a lexer and parser by hand. I also gained greater familiarity with file descriptors and redirection, PATH resolution, shell quoting rules, and Rust ownership rules.
 
-Note: This section is for stages 2 and beyond.
+## AI usage
 
-1. Ensure you have `cargo (1.96)` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `src/main.rs`. This command compiles your Rust project, so it might be slow
-   the first time you run it. Subsequent runs will be fast.
-1. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
-   output will be streamed to your terminal.
+I designed and wrote the shell logic and test cases almost entirely by hand. I used Claude for code review, explaining Rust compiler errors, test harnesses, and the exploratory tests in `tests/learning.rs`.

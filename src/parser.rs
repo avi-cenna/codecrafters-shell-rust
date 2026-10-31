@@ -124,7 +124,7 @@ mod tests {
     ) -> ShellCmd {
         ShellCmd {
             name: name.to_string(),
-            args: args.iter().map(|a| a.to_string()).collect(),
+            args: args.iter().map(ToString::to_string).collect(),
             stdout_dest,
             stderr_dest,
         }

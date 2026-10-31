@@ -126,11 +126,6 @@ const fn is_break_char(c: char) -> bool {
 
 const ESCAPE_CHAR: char = '\\';
 
-// // In double quotes, not all break_chars need to be escaped
-// // https://www.gnu.org/software/bash/manual/html_node/Double-Quotes.html
-// const fn double_quotes_special_chars(c: char) -> bool {
-//     matches!(c, '"' | '$' | '\\' | '`')
-// }
 
 fn extract_word(line: &str, pos: usize) -> (usize, &str) {
     let line = &line[..pos];

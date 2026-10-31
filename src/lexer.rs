@@ -263,7 +263,6 @@ mod tests {
     fn test_token_splitting_malformed() {
         assert!(words("foo'").is_err());
         assert!(words("\"foo").is_err());
-        // Note: REPL will never see this because read_line keeps the `\n`
         assert!(words("foo\\").is_err());
     }
 
